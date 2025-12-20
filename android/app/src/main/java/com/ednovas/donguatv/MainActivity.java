@@ -20,20 +20,34 @@ public class MainActivity extends BridgeActivity {
             window.setStatusBarColor(Color.BLACK);
 
             View decorView = window.getDecorView();
-            // 清除全屏标志，确保显示状态栏
             int uiOptions = View.SYSTEM_UI_FLAG_VISIBLE;
             decorView.setSystemUiVisibility(uiOptions);
 
-            // 关键：让根布局适应系统窗口（即给状态栏留出 Padding）
-            // 这会强制 Webview 向下移动，不被黑色状态栏遮挡
+            // 【终极方案】手动获取状态栏高度，并强行给根布局加 Padding
+            // 无论系统 Flags 如何变化，这个 Padding 是 View 级别的，不会被覆盖
             View content = findViewById(android.R.id.content);
             if (content != null) {
-                content.setFitsSystemWindows(true);
-                // 强制请求重新布局
-                content.requestApplyInsets();
+                int statusBarHeight = getStatusBarHeight();
+                // 设置 PaddingTop = 状态栏高度
+                content.setPadding(0, statusBarHeight, 0, 0);
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    // 获取状态栏高度的辅助方法
+    private int getStatusBarHeight() {
+        int result = 0;
+        int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (resourceId > 0) {
+            result = getResources().getDimensionPixelSize(resourceId);
+        }
+        // 如果获取失败，给一个兜底值 (24dp)
+        if (result == 0) {
+            float density = getResources().getDisplayMetrics().density;
+            result = (int) (24 * density);
+        }
+        return result;
     }
 }
