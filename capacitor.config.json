@@ -1,9 +1,9 @@
 ﻿{
     "appId": "com.ednovas.donguatv",
-    "appName": "E视界",
+    "appName": "冬瓜视界",
     "webDir": "public",
     "server": {
-        "url": "https://ednovas.video",
+        "url": "http://10.10.20.5:3011",
         "cleartext": true
     },
     "plugins": {
@@ -13,4 +13,5 @@
             "backgroundColor": "#000000"
         }
     }
+
 }
