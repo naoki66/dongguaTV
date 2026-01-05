@@ -146,4 +146,17 @@ public class MainActivity extends BridgeActivity {
             exitFullscreen();
         }
     }
+    
+    // 📺 TV 遥控器返回键处理
+    @Override
+    public void onBackPressed() {
+        WebView webView = getBridge().getWebView();
+        if (webView != null && webView.canGoBack()) {
+            // 如果 WebView 有历史记录，返回上一页
+            webView.goBack();
+        } else {
+            // 否则使用默认行为（退出应用）
+            super.onBackPressed();
+        }
+    }
 }
