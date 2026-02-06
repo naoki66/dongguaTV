@@ -116,6 +116,31 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Patch Android applicationId
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          sed -i 's/applicationId "[^"]*"/applicationId "com.ednovas.dongguatv"/' \
+            android/app/build.gradle
+
+      - name: Patch Android app name
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">${{ inputs.app_name }}<\/string>/' \
+            android/app/src/main/res/values/strings.xml
+
+      - name: Patch Android version
+        run: |
+          VERSION_NAME="${{ steps.version.outputs.VERSION }}"
+          VERSION_NAME="${VERSION_NAME#v}"   # 去掉 v 前缀，例如 v1.2.3 → 1.2.3
+
+          sed -i \
+            -e "s/versionName \".*\"/versionName \"$VERSION_NAME\"/" \
+            -e "s/versionCode [0-9]\+/versionCode $VERSION_CODE/" \
+            android/app/build.gradle
+
+          echo "Android versionName=$VERSION_NAME"
+          echo "Android versionCode=$VERSION_CODE"
+
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
