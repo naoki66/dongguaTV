@@ -91,24 +91,55 @@ function getClientIP(req) {
 }
 
 /**
- * 检测 IP 是否来自中国大陆
- * 使用 ip.sb API，带缓存
+ * 检测是否为私有/内网 IP 地址
  * @param {string} ip - IP 地址
- * @returns {Promise<boolean>} - 是否是中国大陆 IP
+ * @returns {boolean} - 是否是私有 IP
  */
-async function isChineseIP(ip) {
-    if (!ip || ip === '127.0.0.1' || ip === '::1') {
-        return false; // 本地 IP 不认为是国内
+function isPrivateIP(ip) {
+    if (!ip) return false;
+    // IPv4 私有地址
+    if (/^127\./.test(ip)) return true;  // 127.0.0.0/8 (loopback)
+    if (/^10\./.test(ip)) return true;   // 10.0.0.0/8
+    if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip)) return true;  // 172.16.0.0/12
+    if (/^192\.168\./.test(ip)) return true;  // 192.168.0.0/16
+    if (/^169\.254\./.test(ip)) return true;  // 169.254.0.0/16 (link-local)
+    // IPv6 私有/特殊地址
+    if (ip === '::1') return true;  // loopback
+    if (/^fe80:/i.test(ip)) return true;  // link-local
+    if (/^fc00:/i.test(ip) || /^fd[0-9a-f]{2}:/i.test(ip)) return true;  // unique local
+    return false;
+}
+
+/**
+ * 检测 IP 是否来自中国大陆（需要使用代理）
+ * 支持从 X-Client-Public-IP 头获取客户端提供的公网 IP
+ * 私有 IP 默认视为需要代理（假设部署在中国大陆内网环境）
+ * @param {object} req - Express 请求对象
+ * @returns {Promise<boolean>} - 是否需要使用代理
+ */
+async function isChineseIP(req) {
+    // 1. 优先使用客户端提供的公网 IP (由前端从 api.ip.sb 获取)
+    const clientProvidedIP = req.headers['x-client-public-ip'];
+    // 2. 回退到服务端检测的 IP
+    const detectedIP = getClientIP(req);
+
+    // 使用客户端提供的 IP（如果有效且非私有）
+    let effectiveIP = clientProvidedIP && !isPrivateIP(clientProvidedIP) ? clientProvidedIP : detectedIP;
+
+    // 3. 如果有效 IP 仍然是私有的，直接返回 true（视为需要代理）
+    if (!effectiveIP || isPrivateIP(effectiveIP)) {
+        console.log(`[IP Detection] Private/LAN IP detected (${detectedIP}), treating as CN (proxy required)`);
+        return true;
     }
 
     // 检查缓存
-    const cached = ipLocationCache.get(ip);
+    const cached = ipLocationCache.get(effectiveIP);
     if (cached && (Date.now() - cached.time < IP_CACHE_TTL)) {
         return cached.isCN;
     }
 
     try {
-        const response = await axios.get(`https://api.ip.sb/geoip/${ip}`, {
+        const response = await axios.get(`https://api.ip.sb/geoip/${effectiveIP}`, {
             timeout: 3000,
             headers: { 'User-Agent': 'DongguaTV/1.0' }
         });
@@ -125,13 +156,13 @@ async function isChineseIP(ip) {
         }
 
         // 缓存结果
-        ipLocationCache.set(ip, { isCN, time: Date.now() });
-        console.log(`[IP Detection] ${ip} -> ${isCN ? '中国大陆' : '海外'}`);
+        ipLocationCache.set(effectiveIP, { isCN, time: Date.now() });
+        console.log(`[IP Detection] ${effectiveIP} -> ${isCN ? '中国大陆' : '海外'}${clientProvidedIP ? ' (client-provided)' : ''}`);
         return isCN;
 
     } catch (error) {
         // API 调用失败，默认不使用代理
-        console.error(`[IP Detection Error] ${ip}:`, error.message);
+        console.error(`[IP Detection Error] ${effectiveIP}:`, error.message);
         return false;
     }
 }
@@ -875,14 +906,13 @@ app.get('/api/tmdb-proxy', async (req, res) => {
     }
 
     try {
-        // 获取用户 IP 并判断是否来自中国大陆
-        const clientIP = getClientIP(req);
+        // 判断是否来自中国大陆（支持 X-Client-Public-IP 头和私有 IP 检测）
         const TMDB_PROXY_URL = process.env['TMDB_PROXY_URL'];
 
         // 只有配置了代理 URL 且用户来自中国大陆时，才使用代理
         let useProxy = false;
         if (TMDB_PROXY_URL) {
-            useProxy = await isChineseIP(clientIP);
+            useProxy = await isChineseIP(req);
         }
 
         const TMDB_BASE = useProxy

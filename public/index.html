@@ -3622,6 +3622,49 @@
         // TMDB 反代配置现在通过环境变量 TMDB_PROXY_URL 配置
         // 详见 .env.example 和 cloudflare-tmdb-proxy.js
 
+        // 客户端公网 IP（用于帮助服务端判断是否需要代理）
+        let clientPublicIP = null;
+
+        /**
+         * 获取客户端公网 IP (用于内网部署场景)
+         * 在页面加载时调用一次，结果缓存到 clientPublicIP
+         */
+        async function fetchClientPublicIP() {
+            try {
+                const response = await fetch('https://api.ip.sb/ip', {
+                    timeout: 5000,
+                    cache: 'no-store'
+                });
+                if (response.ok) {
+                    const ip = (await response.text()).trim();
+                    if (ip && /^[\d\.]+$/.test(ip)) {  // 简单校验 IPv4 格式
+                        clientPublicIP = ip;
+                        console.log('[IP Detection] Client public IP:', ip);
+                    }
+                }
+            } catch (e) {
+                console.warn('[IP Detection] Failed to get public IP:', e.message);
+                // 失败不阻塞，服务端会根据私有 IP 回退处理
+            }
+        }
+
+        /**
+         * TMDB 专用 fetch 包装器，自动注入 X-Client-Public-IP 头
+         * @param {string} url - 请求 URL
+         * @param {object} options - fetch 选项
+         * @returns {Promise<Response>}
+         */
+        function tmdbFetch(url, options = {}) {
+            const headers = new Headers(options.headers || {});
+            if (clientPublicIP) {
+                headers.set('X-Client-Public-IP', clientPublicIP);
+            }
+            return fetch(url, { ...options, headers });
+        }
+
+        // 页面加载时获取公网 IP（后台执行，不阻塞）
+        fetchClientPublicIP();
+
         let dp = null;
 
         createApp({
@@ -5182,7 +5225,7 @@
                     }
 
                     const url = `/api/tmdb-proxy?path=${encodeURIComponent(config.path)}&page=${config.page}&${config.params}${sortParam}`;
-                    return fetch(url)
+                    return tmdbFetch(url)
                         .then(res => res.json())
                         .then(data => {
                             if (data.results) {
@@ -5327,7 +5370,7 @@
                             }
                         }
                         const url = `/api/tmdb-proxy?path=${encodeURIComponent('/discover/' + type)}&page=${page}&sort_by=popularity.desc&with_genres=${genres[genreIndex]}${adultParam}`;
-                        randomRequests.push(fetch(url).then(res => res.json()));
+                        randomRequests.push(tmdbFetch(url).then(res => res.json()));
                     }
 
                     try {
@@ -5366,7 +5409,7 @@
                 },
 
                 fetchHero() {
-                    return fetch(`/api/tmdb-proxy?path=${encodeURIComponent('/trending/all/week')}`)
+                    return tmdbFetch(`/api/tmdb-proxy?path=${encodeURIComponent('/trending/all/week')}`)
                         .then(res => res.json())
                         .then(data => {
                             if (data.results) {
@@ -5395,7 +5438,7 @@
                     if (this.imageMap[name] || this.fallbackMap[name]) return;
                     this.fallbackMap[name] = true;
                     let cleanName = name.replace(/第[0-9一二三四五六七八九十]+[季部]/g, '').replace(/Season\s*\d+/ig, '').replace(/S\d{1,2}/ig, '').replace(/(HD|BD|1080P|720P|4K|202\d|TC|TS).*/i, '').trim();
-                    fetch(`/api/tmdb-proxy?path=${encodeURIComponent('/search/multi')}&query=${encodeURIComponent(cleanName)}`)
+                    tmdbFetch(`/api/tmdb-proxy?path=${encodeURIComponent('/search/multi')}&query=${encodeURIComponent(cleanName)}`)
                         .then(res => res.json()).then(data => {
                             if (data.results && data.results.length > 0) {
                                 const found = data.results.find(i => i.poster_path) || data.results[0];
